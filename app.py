@@ -1,73 +1,73 @@
 import streamlit as st
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.pipeline import make_pipeline
+from datetime import datetime
 
-st.set_page_config(page_title="تحليل ملاحظات المرضى", layout="wide")
+st.set_page_config(page_title="نظام متابعة الأدوية", layout="wide")
 
-st.title("نظام تحليل وتصنيف شكاوى وملاحظات المرضى الآلي")
-st.caption("قسم الجودة والمعلوماتية الصحية")
+st.title("نظام متابعة وتنظيم جرعات الأدوية للمرضى")
+st.caption("قسم المعلوماتية الصحية - المستشفى")
 
-@st.cache_resource
-def train_model():
-    data = [
-        ("الطبيب لم يشرح لي العلاج بشكل كاف واستعجل في الفحص", "قسم الأطباء"),
-        ("الدكتور كان ممتازاً واستمع لكل استفساراتي", "قسم الأطباء"),
-        ("الممرضة تأخرت جداً في استبدال المغذي وسلوكها حاد", "قسم التمريض"),
-        ("تعامل التمريض في العناية المركزة كان رائعاً", "قسم التمريض"),
-        ("تأخير كبير في موعد العيادة وانتظرت أكثر من ساعتين", "المواعيد والاستقبال"),
-        ("موظف الاستقبال غير متعاون ولم يجد ملفي", "المواعيد والاستقبال"),
-        ("الغرفة غير نظيفة ودورة المياه تحتاج إلى صيانة فورية", "النظافة والمرافق"),
-        ("المستشفى نظيف جداً والخدمات ممتازة", "النظافة والمرافق")
-    ]
+if 'medications' not in st.session_state:
+    st.session_state.medications = []
+
+st.sidebar.header("إدخال بيانات دواء جديد")
+with st.sidebar.form("med_form", clear_on_submit=True):
+    patient_name = st.text_input("اسم المريض")
+    file_num = st.text_input("رقم الملف الطبي")
+    med_name = st.text_input("اسم الدواء")
+    dosage = st.text_input("الجرعة")
+    time_schedule = st.time_input("وقت الجرعة القادمة")
+    notes = st.text_area("ملاحظات خاصة")
     
-    df_train = pd.DataFrame(data, columns=["text", "category"])
-    model = make_pipeline(TfidfVectorizer(), MultinomialNB())
-    model.fit(df_train["text"], df_train["category"])
-    return model
-
-model = train_model()
-
-tab1, tab2 = st.tabs(["تحليل ملاحظة واحدة", "تحليل ملف شكاوى متعدد"])
-
-with tab1:
-    st.subheader("تحليل ملاحظة أو شكوى جديدة")
-    user_input = st.text_area("أدخل نص الشكوى أو الملاحظة هنا:")
+    submitted = st.form_submit_button("إضافة الدواء للجدول")
     
-    if st.button("تحليل النص الآن"):
-        if user_input.strip() != "":
-            prediction = model.predict([user_input])[0]
-            urgent_keywords = ["خطأ", "تأخرت", "حاد", "إهمال", "ساعتين", "غير نظيفة"]
-            is_urgent = any(word in user_input for word in urgent_keywords)
-            
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.metric("القسم المعني بالتصنيف", prediction)
-            with col_b:
-                if is_urgent:
-                    st.error("مستوى الأولوية: عالية جدا وتحتاج تدخل سريع")
-                else:
-                    st.success("مستوى الأولوية: عادية")
+    if submitted:
+        if patient_name and med_name:
+            st.session_state.medications.append({
+                "اسم المريض": patient_name,
+                "رقم الملف": file_num,
+                "الدواء": med_name,
+                "الجرعة": dosage,
+                "الوقت": time_schedule.strftime("%H:%M"),
+                "الملاحظات": notes,
+                "الحالة": "قيد الانتظار"
+            })
+            st.success("تمت إضافة الدواء بنجاح")
         else:
-            st.warning("يرجى كتابة نص الملاحظة أولا")
+            st.error("يرجى إدخال اسم المريض واسم الدواء على الأقل")
 
-with tab2:
-    st.subheader("رفع واستعراض تحليل شامل لبيانات الاستبيانات")
-    st.write("يرجى رفع ملف يحتوي على عمود باسم الشكوى")
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("قائمة الأدوية المسجلة لليوم")
+    if len(st.session_state.medications) > 0:
+        df = pd.DataFrame(st.session_state.medications)
+        st.dataframe(df, use_container_width=True)
+        
+        st.write("---")
+        st.subheader("تحديث حالة تناول الجرعة")
+        selected_idx = st.selectbox(
+            "اختر رقم السجل لتغيير حالته:", 
+            range(len(df)), 
+            format_func=lambda x: f"{df.iloc[x]['اسم المريض']} - {df.iloc[x]['الدواء']}"
+        )
+        
+        status_action = st.radio("تحديث الحالة إلى:", ["تم إعطاء الجرعة", "تم التأجيل أو الإلغاء"], horizontal=True)
+        if st.button("تحديث الحالة"):
+            st.session_state.medications[selected_idx]["الحالة"] = status_action
+            st.rerun()
+    else:
+        st.info("لا توجد أدوية مسجلة حاليا")
+
+with col2:
+    st.subheader("تنبيهات الجرعات القادمة")
+    now_str = datetime.now().strftime("%H:%M")
+    st.write(f"الوقت الحالي: {now_str}")
     
-    uploaded_file = st.file_uploader("اختر الملف", type=["csv"])
-    if uploaded_file is not None:
-        try:
-            df_uploaded = pd.read_csv(uploaded_file)
-            if "الشكوى" in df_uploaded.columns:
-                df_uploaded["القسم المقترح"] = model.predict(df_uploaded["الشكوى"])
-                st.write("النتائج بعد التصنيف الآلي:")
-                st.dataframe(df_uploaded, use_container_width=True)
-                
-                st.write("توزيع الشكاوى والملاحظات على الأقسام:")
-                st.bar_chart(df_uploaded["القسم المقترح"].value_counts())
-            else:
-                st.error("الملف المرفوع لا يحتوي على عمود باسم الشكوى")
-        except Exception as e:
-            st.error(f"حدث خطأ أثناء قراءة الملف: {e}")
+    if len(st.session_state.medications) > 0:
+        pending = [m for m in st.session_state.medications if m["الحالة"] == "قيد الانتظار"]
+        if pending:
+            for item in pending:
+                st.warning(f"الدواء: {item['الدواء']} | المريض: {item['اسم المريض']} | الوقت: {item['الوقت']}")
+        else:
+            st.success("جميع الأدوية المسجلة تم إعطاؤها بنجاح")
